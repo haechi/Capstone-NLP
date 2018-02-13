@@ -1,0 +1,96 @@
+---
+title: "Data Science Capstone - Week 2"
+author: "Alexander Zhou"
+date: "2/9/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.path = "./figures/")
+Sys.setenv(JAVA_HOME="C:/Program Files (x86)/Java/jre1.8.0_91/")
+library(knitr) 
+library(dplyr)
+library(doParallel)
+library(stringi) 
+library(ggplot2)
+library(tm)
+library(RWeka)
+```
+
+## Dataset Informations
+
+```{r locals}
+dir.separator <- "/"
+swift.dir <- paste("..","Data", sep = dir.separator)
+swift.lang <- "en_US"
+swift.path <- paste(swift.dir, dir.separator, swift.lang, dir.separator, sep = "")
+sample.size <- 12000
+options(mc.cores = 4)
+grams.n <- 10
+```
+
+```{r rawdata, cache = TRUE}
+blogs <- readLines(paste(swift.path, swift.lang,".blogs.txt", sep = ""), 
+                         encoding = "UTF-8", skipNul = TRUE)
+news <- readLines(paste(swift.path, swift.lang,".news.txt", sep = ""), 
+                        encoding = "UTF-8", skipNul = TRUE)
+twitter <- readLines(paste(swift.path, swift.lang,".twitter.txt", sep = ""), 
+                           encoding = "UTF-8", skipNul = TRUE)
+
+raw.stat <- data.frame(
+            FileName=c(paste(swift.lang,".blogs.txt", sep = ""),
+                       paste(swift.lang,".news.txt", sep = ""),
+                       paste(swift.lang,".twitter.txt", sep = "")),
+            FileSizeMB=c(file.info(paste(swift.path, swift.lang,".blogs.txt", 
+                                         sep = ""))$size/1024^2,
+                         file.info(paste(swift.path, swift.lang,".news.txt", 
+                                         sep = ""))$size/1024^2,
+                         file.info(paste(swift.path, swift.lang,".twitter.txt", 
+                                         sep = ""))$size/1024^2),
+            t(rbind(sapply(list(blogs,news,twitter),stri_stats_general),
+            wordCount=sapply(list(blogs,news,twitter),stri_stats_latex)[4,])))
+kable(raw.stat)
+```
+A Google search for bad word lists, turned out  [this](https://www.freewebheaders.com/full-list-of-bad-words-banned-by-google/) list, used to remove unwanted words form the database
+```{r abusive, cache = TRUE}
+if (!file.exists("abusive-words.txt")){
+  download.file("https://www.freewebheaders.com/wordpress/wp-content/uploads/full-list-of-bad-words-banned-by-google-txt-file.zip", "abusive-words.zip")
+  unzip("abusive-words.zip")
+  file.rename("full-list-of-bad-words-banned-by-google-txt-file_2013_11_26_04_53_31_867.txt","abusive-words.txt", showWarnings = FALSE)
+  file.remove("abusive-words.zip")
+}
+words.abusive <- readLines("abusive-words.txt", encoding="latin1", warn=FALSE, skipNul=TRUE)
+```
+
+```{r datacleaning, cache = TRUE}
+words.sample <- list(blogs[sample(1:length(blogs), sample.size, replace=FALSE)],
+                     news[sample(1:length(news), sample.size, replace=FALSE)],
+                     twitter[sample(1:length(twitter), sample.size, replace=FALSE)])
+
+words.clean <- VCorpus(VectorSource(words.sample))
+words.clean <- tm_map(words.clean, removeNumbers)
+words.clean <- tm_map(words.clean, removePunctuation)
+words.clean <- tm_map(words.clean, removeWords, stopwords("english"))
+words.clean <- tm_map(words.clean, removeWords, words.abusive)
+words.clean <- tm_map(words.clean, stripWhitespace)
+words.clean <- tm_map(words.clean, content_transformer(tolower))
+words.clean <- tm_map(words.clean, PlainTextDocument)
+```
+
+
+```{r tokenization, cache = TRUE}
+tokenizer <- function (x = words.clean, token) {
+  NGramTokenizer(x, Weka_control(min = token, max = token))
+}
+
+gram.1 <- data.frame(table(tokenizer(words.clean, 1)))
+gram.1 <- gram.1[order(gram.1$Freq, decreasing = TRUE),]
+colnames(gram.1) <- c("Word", "Freq")
+gram.1 <- head(gram.1, grams.n)
+ggplot(gram.1, aes(x=reorder(Word, Freq), y=Freq)) + 
+      geom_bar(stat="identity", aes(fill=Freq)) + 
+      ggtitle("Unigrams") + ylab("Frequency") + theme(axis.title.x=element_blank()) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      theme(plot.title = element_text(hjust = 0.5)) + 
+      theme(plot.title = element_text(lineheight=.8, face="bold")) + guides(fill=FALSE)
+```
