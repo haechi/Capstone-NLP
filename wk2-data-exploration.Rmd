@@ -7,13 +7,13 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, fig.path = "./figures/")
+library(knitr)
 library(dplyr)
 library(parallel)
 library(stringi) 
 library(ggplot2)
 library(tm)
 library(RWeka)
-
 ```
 
 ## Introduction
